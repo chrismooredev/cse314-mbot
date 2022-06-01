@@ -1,0 +1,8 @@
+{
+    "configuration": "cpu=atmega2560",
+    "board": "arduino:avr:mega",
+    "sketch": "cse314-mbot.ino",
+    "port": "COM5",
+    "programmer": "arduino:avrisp",
+    "output": "build/"
+}

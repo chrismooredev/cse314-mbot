@@ -1,0 +1,10 @@
+00:1B:10:60:4D:9E - Makeblock_LE
+Alias: Makeblock
+
+UUID? 00001101-0000-1000-8000-00805f9b34fb
+-> UUID for serial port
+
+00:1B:10:60:4C:9E - external module?
+E0:9F:2A:EA:DB:A7 - also external module?
+
+bluez-tools

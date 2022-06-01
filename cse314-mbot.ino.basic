@@ -1,0 +1,52 @@
+//
+#include "MeAuriga.h"
+#include <SoftwareSerial.h>
+
+// #include <MeRGBLed.h>
+
+// set which port we are using. Set to 0 for built-in? not sure
+const uint8_t BLUETOOTH_PORT = PORT_3;
+
+// initialize an MeBluetooth class from the Makerblock library
+MeBluetooth meb(BLUETOOTH_PORT);
+// MeBluetooth meb2(1, 0, true);
+
+void setup() {
+  Serial.begin(115200); // Setup the serial output (readable via USB)
+  meb.begin(115200); // Setup Bluetooth serial input, another device will connect? I guess?
+  Serial.println("Bluetooth Started!"); // log successful setup
+}
+
+// hold a line buffer for our Bluetooth input
+uint8_t linebuf[64];
+// how much data our buffer currently holds
+size_t linebuf_len = 0;
+
+void loop() {
+  int c; // character we may or may not read from the bluetooth stream
+
+  // read a character from the Bluetooth stream into 'c'
+  while((c = meb.read()) != -1) {
+
+    // write the read character into the our buffer
+    linebuf[linebuf_len] = c;
+    linebuf_len++;
+
+    // check if this is the end of a line/string, or our buffer is full
+    bool buffer_full = linebuf_len == sizeof(linebuf);
+    bool should_output = (c == '\0') || (c == '\n') || buffer_full;
+    
+    // if we aren't outputting, reset the while loop to get the next char
+    if(!should_output) continue;
+
+    // we are outputting, write this line with a timestamp prefix
+    unsigned long now = millis();
+    Serial.write(now);
+    Serial.write(" : ");
+    Serial.write(linebuf, linebuf_len); // includes line terminator, if we were given one
+    linebuf_len = 0;
+
+    // write a newline if we weren't given one by the bluetooth stream
+    if(!buffer_full) Serial.write('\n');
+  }
+}

@@ -1,0 +1,119 @@
+/*
+   Navigates The Makeblock Bot Through RSSI Values Read In From The Serial Monitor
+*/
+
+#include "MeAuriga.h"
+
+/*Define Ultrasonic Sensor Connection*/
+MeUltrasonicSensor ultraSensor(PORT_7);
+
+/*Define Motor Connections*/
+MeDCMotor LM(M1);
+MeDCMotor RM(M2);
+
+/*PWM Pins*/
+int Left_Motor = 10;
+int Right_Motor = 11;
+
+/*Tread Direction Pins*/
+int LM_Forward = 47;   /*LM = Left Motor*/
+int LM_Backward = 46;
+int RM_Forward = 48;   /*RM = Right Motor*/
+int RM_Backward = 49;
+
+/*Define Motor Speed From 0 to 255*/
+uint8_t motorSpeed = 0;
+
+/*Set Up Variables Used To Read From Serial Monitor*/
+const byte numChars = 32;
+char receivedChars[numChars];
+int dataNumber = 0;
+
+/*RSSI Variables*/
+int rssiRefresh = 0;
+int old_RSSI = -10000;
+int new_RSSI = -10000;
+
+void setup()
+{
+  Serial.begin(2000000);
+  Serial.println("Online");
+}
+
+void loop()
+{
+  if (rssiRefresh >= 200) {                 /*rssiRefresh Limit may need to be increased from 200*/
+    new_RSSI = old_RSSI + 10;
+    rssiRefresh = 0;
+  }
+  Serial.print('.');
+  ObjectDetect();
+  // RSSINav();
+  rssiRefresh++;
+}
+
+/*Function For Handling Object Detection*/
+void ObjectDetect() {
+  if (ultraSensor.distanceCm() <= 15) {     /*ultraSensor.distanceCm() Limit may need to be increased from 15*/
+    Serial.println("turning");
+    LM.stop();
+    RM.stop();
+    LM.setpin(LM_Backward, Left_Motor);
+    RM.setpin(RM_Forward, Right_Motor);
+    LM.run(150);
+    RM.run(150);
+    delay(1500);
+  }
+}
+/*Function For Handling RSSI Navigation*/
+void RSSINav() {
+  if (new_RSSI == -10000) {
+    LM.run(0);
+    RM.run(0);
+  }
+  if (new_RSSI >= old_RSSI and new_RSSI != -10000) {
+    LM.setpin(LM_Forward, Left_Motor);
+    RM.setpin(RM_Forward, Right_Motor);
+    LM.run(150);
+    RM.run(150);
+    old_RSSI = new_RSSI;
+  }
+  if (new_RSSI < old_RSSI and new_RSSI != -10000) {
+    LM.stop();
+    RM.stop();
+    LM.setpin(LM_Backward, Left_Motor);
+    RM.setpin(RM_Forward, Right_Motor);
+    LM.run(150);
+    RM.run(150);
+    delay(2000);
+    old_RSSI = new_RSSI;
+  }
+}
+
+
+
+///*Function For Handling Serial Monitor Data*/
+//void ReadSerial() {
+//  static byte x = 0;
+//  char endMarker = '\n';
+//  char rssi;
+//  String hold = "";
+//
+//  if (Serial.available() > 0) {
+//    rssi = Serial.read();
+//
+//    if (rssi != endMarker) {
+//      receivedChars[x] = rssi;
+//      x++;
+//      if (x >= numChars) {
+//        x = numChars - 1;
+//      }
+//    }
+//    else {
+//      receivedChars[x] = '\0';
+//      new_RSSI = atoi(receivedChars);
+//      Serial.println(new_RSSI);
+//      x = 0;
+//    }
+//  }
+//}
