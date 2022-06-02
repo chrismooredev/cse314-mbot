@@ -8,3 +8,19 @@ UUID? 00001101-0000-1000-8000-00805f9b34fb
 E0:9F:2A:EA:DB:A7 - also external module?
 
 bluez-tools
+
+AT Commands:
+
+AT+HELP?
+
+AT+STATE?
+OK
+AT+BLE?
++BLE:1
+
+AT+VER?
+
++VER:(Makeblock)Ver2.3.18.2(Dec 11 2015)
+
+OK
+

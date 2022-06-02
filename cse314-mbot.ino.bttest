@@ -1,0 +1,26 @@
+
+#include "MeAuriga.h"
+#include <SoftwareSerial.h>
+#include <MeBluetooth.h>
+
+MeBluetooth bt(PORT_5); // external
+// MeBluetooth bt(PORT_3); // built-in
+
+void setup() {
+    Serial.begin(115200);
+    bt.begin(115200);
+    Serial.println("ready");
+}
+
+void loop() {
+    while(Serial.available()) {
+        delay(1);
+        char s = Serial.read();
+        Serial.write(s);
+        if(s == '\r') continue;
+        bt.write(s);
+    }
+    while(bt.available()) {
+        Serial.write(bt.read());
+    }
+}

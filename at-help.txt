@@ -1,0 +1,43 @@
+AT+HELP?
+
+AT+Z:
+ Reset device
+
+AT+VER:
+ Get ver of firmware
+
+AT+HELP:
+ Get help
+
+AT+MAC:
+ Get MAC address of Bluetooth
+
+AT+LENAME:
+ Set name of ble
+
+AT+DNAME:
+ Set name of device
+
+AT+URATE:
+ Set uart baudrate
+
+AT+PIN:
+ Set pin code
+
+AT+BLE:
+ Set/get BLE visable
+
+AT+SPP:
+ Set/get SPP visable
+
+AT+STATE:
+ Get State
+
+AT+GPIO:
+ Enable GPIO functions
+
+AT+UPGRADE:
+ Upgrade BT firmware
+
+AT+DEBUG:
+ enable/disable debug BT

@@ -33,8 +33,8 @@ const int MOTOR_HOLD_MS = 1500;
 
 /*RSSI Variables*/
 int rssiRefresh = 0;
-int old_RSSI = -10000;
-int new_RSSI = -10000;
+int rssi_old = -10000;
+int rssi_new = -10000;
 unsigned long rssi_last_recv = 0;
 
 double curr_dist_cm = 0.0;
@@ -78,10 +78,10 @@ void init_motors() {
   TCCR2B = _BV(CS21);
 
   // unnecessary?
-  // MOTOR_RIGHT.setPulse(9);
-  // MOTOR_LEFT.setPulse(9);
-  // MOTOR_RIGHT.setRatio(39.267);
-  // MOTOR_LEFT.setRatio(39.267);
+  MOTOR_RIGHT.setPulse(9);
+  MOTOR_LEFT.setPulse(9);
+  MOTOR_RIGHT.setRatio(39.267);
+  MOTOR_LEFT.setRatio(39.267);
 
   MOTOR_RIGHT.setPosPid(1.8,0,1.2);
   MOTOR_LEFT.setPosPid(1.8,0,1.2);
@@ -197,17 +197,31 @@ void read_bt(const char *label, MeBluetooth *bt, uint8_t *const buf, size_t *buf
                     // detect data packets by type
                     if(strncmp(typ, "msg", 3) == 0 && strncmp(payload, "heartbeat", 9) == 0) {
                         // flash on the LEDs if we have a BT heartbeat
-                        anim.flash(0, 0, 5);
+                        anim.set_color(AURIGARINGLEDNUM/2, 0, 0, 5);
+                        anim.set_dirty();
                         // Serial.print("+");
                     } else if(strncmp(typ, "rssi", 4) == 0) {
-                        // parse int from 'payload' and set it to new_RSSI
+                        // parse int from 'payload' and set it to rssi_new
                         char* end;
                         long value = strtol(payload, &end, 10);
                         if(end == payload || *end != '\0') {
                             Serial.print("error reading new rssi value, not a valid integer: ");
                             Serial.println(payload);
                         } else {
-                            new_RSSI = value;
+                            int32_t r,g,b;
+                            r = g = b = 0;
+                            if(value > rssi_new) { // we want a higher (closer to zero) RSSI if we are closer
+                                g = 5;
+                            } else if(value < rssi_new) {
+                                r = 20;
+                            } else {
+                                r = g = b = 5;
+                            }
+                            anim.set_color(-1, r, g, b);
+                            anim.set_color(0, r, g, b);
+                            anim.set_color(1, r, g, b);
+                            anim.set_dirty();
+                            rssi_new = value;
                             rssi_last_recv = millis();
                         }
                     } else {
@@ -314,20 +328,20 @@ bool object_detect(double dist_cm) {
 }
 
 /*Function For Handling RSSI Navigation*/
-bool rssi_nav(int *new_RSSI, int *old_RSSI) {
+bool rssi_nav(int *rssi_new, int *rssi_old) {
     // Serial.print("rssi nav: (old, new) = (");
-    // Serial.print(*new_RSSI);
+    // Serial.print(*rssi_new);
     // Serial.print(",");
-    // Serial.print(*old_RSSI);
+    // Serial.print(*rssi_old);
     // Serial.println(")");
 
-    if (*new_RSSI == -10000) {
+    if (*rssi_new == -10000) {
         // keep motors off if we never received an RSSI value
         // set_motors(0, 0, 0);
         return false;
     } else {
         // otherwise act acccording to that new value
-        int diff = *old_RSSI - *new_RSSI;
+        int diff = *rssi_old - *rssi_new;
 
         if(diff == 0) { // stays the same
             set_motors(MOTOR_SPEED, MOTOR_SPEED, 500);
@@ -336,10 +350,21 @@ bool rssi_nav(int *new_RSSI, int *old_RSSI) {
         } else if(diff > 0) { // gets further?
             set_motors(-MOTOR_SPEED, -MOTOR_SPEED, 500);
         }
-        *old_RSSI = *new_RSSI;
+        *rssi_old = *rssi_new;
         return true;
     }
 }
+
+enum BOT_STATE {
+    STATE_START,
+    STATE_RSSI_INIT,
+    STATE_FORWARD,
+    STATE_OBJ_DETECT,
+    STATE_ROTATE,
+};
+
+enum BOT_STATE state = STATE_START;
+bool motor_test = false;
 
 void loop() {
     unsigned long now = millis();
@@ -349,8 +374,8 @@ void loop() {
         char upd8buf[256];
         dtostrf(curr_dist_cm, 3, 2, upd8float);
         int written = snprintf(upd8buf, sizeof(upd8buf),
-            "[%08lu] rssi_old=%+8d, rssi_new=%+8d, rssi_diff=%+3d, dist_cm=%s (from %lu), motor_expire=(%8lu, %8lu) motors=%s",
-            now, old_RSSI, new_RSSI, old_RSSI-new_RSSI, upd8float, last_dist_poll, ml_expire, mr_expire,
+            "[%08lu] state=%d, rssi_old=%+8d, rssi_new=%+8d, rssi_diff=%+3d, dist_cm=%6s (from %lu), motor_expire=(%8lu, %8lu) motors=%s",
+            now, state, rssi_old, rssi_new, rssi_old-rssi_new, upd8float, last_dist_poll, ml_expire, mr_expire,
             motors_stopped ? "disabled" : "enabled"
         );
         Serial.println(upd8buf);
@@ -377,26 +402,73 @@ void loop() {
     anim.tick();
     read_bt("bt_ext", &bte, bte_linebuf, &bte_linebuf_len);
 
+
+    if(!motor_test && ml_expire == 0 && mr_expire == 0) {
+        // only advance our state machine if our movement has expired
+        switch(state) {
+            case STATE_START: {
+                state = STATE_RSSI_INIT;
+                break;
+            };
+            case STATE_RSSI_INIT: {
+                /* wait for both RSSI values to fill. If rssi_new is filled, but not rssi_old, fill it with rssi_new */
+                if(rssi_new != -1000) {
+                    if(rssi_old == -1000) {
+                        rssi_old = rssi_new;
+                    } else if(rssi_old != rssi_new) {
+                        state = STATE_FORWARD;
+                    }
+                }
+                const unsigned long TWO_MINS = 2UL*60*1000;
+                if(millis() > TWO_MINS) {
+                    motor_test = true;
+                    anim.set_anim_color(30, 30, 0);
+                }
+                break;
+            };
+            case STATE_FORWARD: {
+                set_motors(50, 50, 2000);
+                state = STATE_OBJ_DETECT;
+                break;
+            };
+            case STATE_OBJ_DETECT: {
+                if(curr_dist_cm < TURN_IF_WITHIN) {
+                    /* turn 60 degrees right */
+                    Serial.println("turning 60deg right");
+                    set_motors(-50, 50, 1000);
+                    state = STATE_FORWARD;
+                } else {
+                    
+                    state = STATE_FORWARD;
+                }
+                break;
+            }
+        }
+        
+        return;
+    }
+
+
     // only run navigation if the motors are available (eg: not in the middle of another step)
     if(ml_expire == 0 && mr_expire == 0) {
         // we haven't elapsed our hold time yet
 
         // debug - different cases for motor movement depending on time
-        // unsigned long state = (millis() / 20000) % 4;
-        // float l, r;
-        // switch(state) {
-        //     case 0: l=MOTOR_SPEED; r=MOTOR_SPEED; break;
-        //     case 1: l=MOTOR_SPEED; r=-MOTOR_SPEED; break;
-        //     case 2: l=-MOTOR_SPEED; r=-MOTOR_SPEED; break;
-        //     case 3: l=-MOTOR_SPEED; r=MOTOR_SPEED; break;
-        // }
-        // set_motors(l, r, 5000);
-        // motors_until = millis() + 1000;
-
-        bool activated = object_detect(curr_dist_cm);
-        if(!activated) {
-            activated = rssi_nav(&new_RSSI, &old_RSSI);
+        unsigned long state = (millis() / 20000) % 4;
+        float l, r;
+        switch(state) {
+            case 0: l=MOTOR_SPEED; r=MOTOR_SPEED; break;
+            case 1: l=MOTOR_SPEED; r=-MOTOR_SPEED; break;
+            case 2: l=-MOTOR_SPEED; r=-MOTOR_SPEED; break;
+            case 3: l=-MOTOR_SPEED; r=MOTOR_SPEED; break;
         }
+        set_motors(l, r, 5000);
+        motors_until = millis() + 1000;
+
+        // bool activated = object_detect(curr_dist_cm);
+        // if(!activated) {
+        //     activated = rssi_nav(&rssi_new, &rssi_old);
+        // }
     }
 
     // artificial delay in loop? can't think of a reason to actually need this
