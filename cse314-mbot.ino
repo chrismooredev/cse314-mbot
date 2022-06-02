@@ -402,7 +402,6 @@ void loop() {
     anim.tick();
     read_bt("bt_ext", &bte, bte_linebuf, &bte_linebuf_len);
 
-
     if(!motor_test && ml_expire == 0 && mr_expire == 0) {
         // only advance our state machine if our movement has expired
         switch(state) {
@@ -423,6 +422,7 @@ void loop() {
                 if(millis() > TWO_MINS) {
                     motor_test = true;
                     anim.set_anim_color(30, 30, 0);
+                    Serial.println("No RSSI within two minutes - going into demo mode");
                 }
                 break;
             };
@@ -448,10 +448,22 @@ void loop() {
         return;
     }
 
+    // go forward, but turn if about to hit an obsticle
+    if(ml_expire == 0 && mr_expire == 0) {
+        if(curr_dist_cm < TURN_IF_WITHIN) {
+            set_motors(MOTOR_SPEED, -MOTOR_SPEED, 400);
+        } else {
+            set_motors(MOTOR_SPEED, MOTOR_SPEED, 1000);
+        }
+    }
+
+    return;
 
     // only run navigation if the motors are available (eg: not in the middle of another step)
     if(ml_expire == 0 && mr_expire == 0) {
         // we haven't elapsed our hold time yet
+
+        // bool activated = object_detect(curr_dist_cm);
 
         // debug - different cases for motor movement depending on time
         unsigned long state = (millis() / 20000) % 4;
@@ -465,7 +477,7 @@ void loop() {
         set_motors(l, r, 5000);
         motors_until = millis() + 1000;
 
-        // bool activated = object_detect(curr_dist_cm);
+        bool activated = object_detect(curr_dist_cm);
         // if(!activated) {
         //     activated = rssi_nav(&rssi_new, &rssi_old);
         // }
