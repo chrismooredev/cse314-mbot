@@ -9,6 +9,14 @@
 
 #include "animate_ring.h"
 
+enum BOT_STATE {
+    STATE_START,
+    STATE_RSSI_INIT,
+    STATE_FORWARD,
+    STATE_OBJ_DETECT,
+    STATE_ROTATE,
+};
+
 // on-board LED ring, at PORT0 (onboard), with 12 LEDs
 MeRGBLed led_ring(0, 12);
 AnimateRing anim(&led_ring);
@@ -47,9 +55,11 @@ bool motors_stopped = false; // allows turning off the motors without affecting 
 // prints all bluetooth messages to serial as a hexdump
 const bool DEBUG_BLUETOOTH = false;
 
-
 const unsigned long freq_print = 500; // how often to print internal state to serial
 const unsigned long freq_dist_poll = 100; // how often to poll the distance sensor for new info
+
+enum BOT_STATE state = STATE_START;
+bool motor_test = false;
 
 // functions for initializing the motors/encoders - from Me_Auriga_encoder_callback.ino example
 void isr_process_encoder1(void) {
@@ -355,17 +365,6 @@ bool rssi_nav(int *rssi_new, int *rssi_old) {
     }
 }
 
-enum BOT_STATE {
-    STATE_START,
-    STATE_RSSI_INIT,
-    STATE_FORWARD,
-    STATE_OBJ_DETECT,
-    STATE_ROTATE,
-};
-
-enum BOT_STATE state = STATE_START;
-bool motor_test = false;
-
 void loop() {
     unsigned long now = millis();
     if(last_print + freq_print < now) {
@@ -402,6 +401,8 @@ void loop() {
     anim.tick();
     read_bt("bt_ext", &bte, bte_linebuf, &bte_linebuf_len);
 
+    // state machine based impl
+    // goes if not in test mode and motors are available
     if(!motor_test && ml_expire == 0 && mr_expire == 0) {
         // only advance our state machine if our movement has expired
         switch(state) {
@@ -427,7 +428,7 @@ void loop() {
                 break;
             };
             case STATE_FORWARD: {
-                set_motors(50, 50, 2000);
+                set_motors(MOTOR_SPEED, MOTOR_SPEED, 2000);
                 state = STATE_OBJ_DETECT;
                 break;
             };
@@ -435,11 +436,11 @@ void loop() {
                 if(curr_dist_cm < TURN_IF_WITHIN) {
                     /* turn 60 degrees right */
                     Serial.println("turning 60deg right");
-                    set_motors(-50, 50, 1000);
+                    set_motors(-MOTOR_SPEED, MOTOR_SPEED, 1000);
                     state = STATE_FORWARD;
                 } else {
-                    
                     state = STATE_FORWARD;
+
                 }
                 break;
             }
@@ -448,7 +449,7 @@ void loop() {
         return;
     }
 
-    // go forward, but turn if about to hit an obsticle
+    // imple to go forward, but turn if about to hit an obsticle
     if(ml_expire == 0 && mr_expire == 0) {
         if(curr_dist_cm < TURN_IF_WITHIN) {
             set_motors(MOTOR_SPEED, -MOTOR_SPEED, 400);
@@ -460,6 +461,7 @@ void loop() {
     return;
 
     // only run navigation if the motors are available (eg: not in the middle of another step)
+    // test motors
     if(ml_expire == 0 && mr_expire == 0) {
         // we haven't elapsed our hold time yet
 
