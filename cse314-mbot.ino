@@ -22,7 +22,7 @@ MeRGBLed led_ring(0, 12);
 AnimateRing anim(&led_ring);
 
 // initialize an MeBluetooth class from the Makerblock library
-MeBluetooth bti(PORT_3); // built-in
+// MeBluetooth bti(PORT_3); // built-in
 MeBluetooth bte(PORT_5); // external
 
 /*Define Ultrasonic Sensor Connection*/
@@ -31,9 +31,10 @@ MeUltrasonicSensor ultraSensor(PORT_7);
 /*Define Motor Connections*/
 MeEncoderOnBoard MOTOR_RIGHT(SLOT1); // right
 MeEncoderOnBoard MOTOR_LEFT(SLOT2); // left
+MeEncoderOnBoard *MOTORS[2] = { &MOTOR_RIGHT, &MOTOR_LEFT };
 
 /*Define Motor Speed From 0 to 255*/
-#define MOTOR_SPEED 50
+#define MOTOR_SPEED 150
 /* Turn the rover if its within TURN_IF_WITHIN cm of an object (via ultrasonic) */
 const double TURN_IF_WITHIN = 15.0;
 /* How many milliseconds to run the motors during a movement step */
@@ -77,26 +78,35 @@ void isr_process_encoder2(void) {
   }
 }
 void init_motors() {
-  attachInterrupt(MOTOR_RIGHT.getIntNum(), isr_process_encoder1, RISING);
-  attachInterrupt(MOTOR_LEFT.getIntNum(), isr_process_encoder2, RISING);
+    attachInterrupt(MOTOR_RIGHT.getIntNum(), isr_process_encoder1, RISING);
+    attachInterrupt(MOTOR_LEFT.getIntNum(), isr_process_encoder2, RISING);
 
-  //Set PWM 8KHz
-  TCCR1A = _BV(WGM10);
-  TCCR1B = _BV(CS11) | _BV(WGM12);
+    //Set PWM 8KHz
+    TCCR1A = _BV(WGM10);
+    TCCR1B = _BV(CS11) | _BV(WGM12);
 
-  TCCR2A = _BV(WGM21) | _BV(WGM20);
-  TCCR2B = _BV(CS21);
+    TCCR2A = _BV(WGM21) | _BV(WGM20);
+    TCCR2B = _BV(CS21);
 
-  // unnecessary?
-  MOTOR_RIGHT.setPulse(9);
-  MOTOR_LEFT.setPulse(9);
-  MOTOR_RIGHT.setRatio(39.267);
-  MOTOR_LEFT.setRatio(39.267);
+    // unnecessary?
+    const bool use_docs = false;
+    if(use_docs) {
+        MOTOR_RIGHT.setPulse(9);
+        MOTOR_LEFT.setPulse(9);
+        MOTOR_RIGHT.setRatio(39.267);
+        MOTOR_LEFT.setRatio(39.267);
+    } else {
+        // https://stackoverflow.com/questions/41050308/are-there-instructions-for-the-arduino-pid-code
+        MOTOR_RIGHT.setPulse(7);
+        MOTOR_LEFT.setPulse(7);
+        MOTOR_RIGHT.setRatio(26.9);
+        MOTOR_LEFT.setRatio(26.9);
+    }
 
-  MOTOR_RIGHT.setPosPid(1.8,0,1.2);
-  MOTOR_LEFT.setPosPid(1.8,0,1.2);
-  MOTOR_RIGHT.setSpeedPid(0.18,0,0);
-  MOTOR_LEFT.setSpeedPid(0.18,0,0);
+    MOTOR_RIGHT.setPosPid(1.8,0,1.2);
+    MOTOR_LEFT.setPosPid(1.8,0,1.2);
+    MOTOR_RIGHT.setSpeedPid(0.18,0,0);
+    MOTOR_LEFT.setSpeedPid(0.18,0,0);
 }
 
 // runs on startup of the bot
@@ -112,7 +122,7 @@ void setup() {
     // RM.stop();
 
     // 12 LED Ring controller is on Auriga D44/PWM
-    led_ring.setpin( 44 );
+    led_ring.setpin(44);
 
     // little startup animation to know if its been rebooted
     led_ring.setColor(10,10,10);
@@ -129,7 +139,6 @@ void setup() {
     anim.resume();
 
     // initialize the bluetooth modules/motors
-    // bti.begin(115200);
     bte.begin(115200);
     init_motors();
 
@@ -277,8 +286,21 @@ unsigned long ml_expire = 0;
 
 // called in the main loop() method to drive the motors. must be called every few milliseconds for the motors to run.
 void motor_loop() {
+    static unsigned long last_motor_loop = 0;
     unsigned long now = millis();
-    
+
+    if(last_motor_loop == 0) {
+        last_motor_loop = now;
+    } else {
+        unsigned long since_last = now - last_motor_loop;
+        if(since_last > 100) {
+            Serial.print("[motor_loop] too long since last call, last call was ");
+            Serial.print(since_last);
+            Serial.println("ms ago!");
+        }
+    }
+    last_motor_loop = now;
+
     if(motors_stopped || (ml_expire != 0 && ml_expire <= now)) {
         MOTOR_LEFT.runSpeed(0.0);
         ml_expire = 0;
@@ -292,12 +314,72 @@ void motor_loop() {
     MOTOR_RIGHT.loop();
 }
 
+void motor_done(int16_t a, int16_t b) {
+    char buf[128];
+    snprintf(buf, sizeof(buf), "MOTOR_DONE(%hd, %hd)", a, b);
+    Serial.println(buf);
+    MOTORS[a-1]->setSpeed(0.0);
+}
+
+// accepts distance each motor should go, in meters
+void go_distance(double left, double right) {
+    const double diameter_cm = 4.0;
+    // const double diameter_cm = 6.5;
+    const double circumference_cm = diameter_cm * PI; // ~11.78cm
+    const double rpm = 100/circumference_cm; // ~8.5 rotations per meter
+    Serial.println("go_distance");
+    Serial.print("\tdiameter_cm: ");
+    Serial.println(diameter_cm);
+    Serial.print("\tcircumference_cm: ");
+    Serial.println(circumference_cm);
+    Serial.print("\trotations_per_meter: ");
+    Serial.println(rpm);
+
+    long rel_pos_left = (long) (left*rpm*-360.0);
+    long rel_pos_rigt = (long) (right*rpm*360.0);
+
+    char outbuf[128];
+    snprintf(outbuf, sizeof(outbuf), "\tmove = (%ld, %ld)\n", rel_pos_left, rel_pos_rigt);
+    Serial.print(outbuf);
+    // bte.println("go_distance");
+    // bte.print("\tdiameter_cm: ");
+    // bte.println(diameter_cm);
+    // bte.print("\tcircumference_cm: ");
+    // bte.println(circumference_cm);
+    // bte.print("\trotations_per_meter: ");
+    // bte.println(rpm);
+
+
+    
+
+    /** ex:
+        left = 1.5m
+        rotations = left*rotations_per_m;
+        relative_angle_to_move = rotations*360.0;
+    */
+
+    MOTORS[0]->move(rel_pos_left);
+    MOTORS[1]->move(rel_pos_rigt);
+
+    // double left_rotations = left*rotations_per_m;
+    // double right_rotations = right*rotations_per_m;
+
+    // double left_rel_angle = 360.0 * left_rotations;
+    // double right_rel_angle = 360.0 * right_rotations;
+
+    // MOTOR_LEFT.move(left_rel_angle, 100.0, 23, motor_done);
+    // MOTOR_RIGHT.move(-right_rel_angle, 100.0, 47, motor_done);
+}
+
+
 /* Sets motor speeds in RPMs. Negative goes backwards. Motors are moved at that speed for `for_ms` milliseconds,
  after which they stop. This function can be called again to restart the timer. Passing zero for `for_ms` doesn't
  expire the motor movement. */
 void set_motors(float left_speed, float right_speed, unsigned long for_ms) {
     // don't execute if we've stopped the motors over serial port
     if(motors_stopped) return;
+
+    Serial.print("set_motors");
 
     char fl_left[16];
     char fl_right[16];
@@ -366,26 +448,54 @@ bool rssi_nav(int *rssi_new, int *rssi_old) {
 }
 
 void loop() {
+    static bool has_started_motors = false;
+
+    
+    #define PRINT_TIMESTAMP(lbl) ;
+    // #define PRINT_TIMESTAMP(lbl) do { \
+    //     unsigned long curr = millis(); \
+    //     Serial.print("[loop][" lbl "] ms="); \
+    //     Serial.print(curr); \
+    //     Serial.print(" ("); \
+    //     Serial.print(curr - last_time); \
+    //     Serial.println("ms diff)"); \
+    //     last_time = curr; \
+    // } while(0);
+
+    unsigned long last_time = millis();
+    PRINT_TIMESTAMP("start");
+
+    // unsigned long st = millis();
+    motor_loop();
+    // unsigned long end = millis();
+    // Serial.print("[loop] motor_loop took ");
+    // Serial.print(end - st);
+    // Serial.println("ms");
+
     unsigned long now = millis();
+    PRINT_TIMESTAMP("timed_debug_print");
     if(last_print + freq_print < now) {
         // print internal state to serial
         char upd8float[16];
         char upd8buf[256];
         dtostrf(curr_dist_cm, 3, 2, upd8float);
         int written = snprintf(upd8buf, sizeof(upd8buf),
-            "[%08lu] state=%d, rssi_old=%+8d, rssi_new=%+8d, rssi_diff=%+3d, dist_cm=%6s (from %lu), motor_expire=(%8lu, %8lu) motors=%s",
-            now, state, rssi_old, rssi_new, rssi_old-rssi_new, upd8float, last_dist_poll, ml_expire, mr_expire,
+            "[%08lu] state=%d, rssi_old=%+8d, rssi_new=%+8d, rssi_diff=%+3d, dist_cm=%6s (from %lu), motors_went=%d, motor_speed=(%8lu, %lu) motor_expire=(%8lu, %8lu) motors=%s",
+            now, state, rssi_old, rssi_new, rssi_old-rssi_new, upd8float, last_dist_poll, has_started_motors, MOTOR_LEFT.getCurrentSpeed(), MOTOR_RIGHT.getCurrentSpeed(), ml_expire, mr_expire,
             motors_stopped ? "disabled" : "enabled"
         );
         Serial.println(upd8buf);
+        // bte.println(upd8buf);
 
         last_print = now;
     }
+    PRINT_TIMESTAMP("timed_ultrasonic");
     if(last_dist_poll + freq_dist_poll < now) {
         // poll distance sensor
-        curr_dist_cm = ultraSensor.distanceCm();
+        // curr_dist_cm = ultraSensor.distanceCm();
         last_dist_poll = now;
     }
+    PRINT_TIMESTAMP("motor_toggle");
     if((char) Serial.read() == 't') {
         // toggle motors if 't' was sent over serial
         // mostly for debugging so the rover doesn't go wild
@@ -397,9 +507,25 @@ void loop() {
     }
 
     // let the motors, LED Ring animation, and bluetooth routines update as appropriate
+    PRINT_TIMESTAMP("motor_loop");
     motor_loop();
+    PRINT_TIMESTAMP("anim.tick");
     anim.tick();
+
+    PRINT_TIMESTAMP("read_bt");
     read_bt("bt_ext", &bte, bte_linebuf, &bte_linebuf_len);
+    unsigned long end_bt = millis();
+
+    PRINT_TIMESTAMP("starting motors");
+    if(!has_started_motors && now > 10000) {
+        Serial.println("Starting motors!");
+        has_started_motors = true;
+        go_distance(0.5, 0.5);
+    }
+
+    PRINT_TIMESTAMP("finish");
+
+    return;
 
     // state machine based impl
     // goes if not in test mode and motors are available
